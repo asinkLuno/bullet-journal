@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Bullet Journal"
+  short_description: "Maintain Bullet Journal entries from natural language"
+  default_prompt: "Use $manage-bullet-journal to update my Bullet Journal from this request."

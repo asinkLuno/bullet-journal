@@ -40,6 +40,16 @@ Use **Set up journal** to initialize the whole structure at once, in the order s
 - Habit/mood tracker generation.
 - Time Boxing rendering.
 
+## Codex skill
+
+The repository includes the [`manage-bullet-journal`](skills/manage-bullet-journal) skill for maintaining a journal with natural language, for example:
+
+- “帮我把 8 月 2 日写周报的任务拆分一下”
+- “我今天看了《设计心理学》，意识到反馈应该即时可见”
+- “把续费域名移到下个月”
+
+Install the skill from this GitHub repository's `skills/manage-bullet-journal` directory, then invoke it as `$manage-bullet-journal` or use a matching natural-language request.
+
 ## Development
 
 ```bash
