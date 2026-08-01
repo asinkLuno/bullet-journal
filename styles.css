@@ -1,8 +1,42 @@
-/*
+.bullet-journal-animation {
+	position: fixed;
+	z-index: var(--layer-popover);
+	color: var(--text-normal);
+	background: var(--background-primary);
+	pointer-events: none;
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.bullet-journal-animation__dot,
+.bullet-journal-animation__stroke {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	display: block;
+	background: currentColor;
+	translate: -50% -50%;
+}
 
-If your plugin does not need CSS, delete this file.
+.bullet-journal-animation__dot {
+	width: 0.35em;
+	height: 0.35em;
+	border-radius: 50%;
+}
 
-*/
+.bullet-journal-animation__stroke {
+	width: 0.8em;
+	height: 0.12em;
+	transform-origin: center;
+}
+
+.markdown-rendered .bullet-journal-list,
+.markdown-rendered .bullet-journal-item {
+	list-style: none !important;
+}
+
+.markdown-rendered .bullet-journal-item::marker {
+	content: none;
+}
+
+.markdown-rendered .bullet-journal-list {
+	padding-inline-start: var(--list-indent);
+}
