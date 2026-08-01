@@ -1,5 +1,6 @@
 import { Editor, Modal, Notice, Plugin, Setting, TFile, TFolder, normalizePath } from 'obsidian';
 import { formatLocalDate, formatLocalMonth, parseMigrationTarget } from './date';
+import { FutureMonth, appendToSection, futureMonths } from './future';
 import { DEFAULT_SETTINGS, BulletJournalSettings } from './settings';
 import { UnfinishedTask, findUnfinishedTasks } from './tasks';
 import { t } from './i18n';
@@ -124,6 +125,86 @@ class ManualMigrationModal extends Modal {
 	}
 }
 
+async function openFutureLog(plugin: JournalPlugin): Promise<void> {
+	const months = futureMonths(new Date());
+	const folder = `${journalFolder(plugin.settings.journalFolder)}/Future`;
+	await ensureFolder(plugin, folder);
+	const path = `${folder}/${months[0]?.year ?? new Date().getFullYear()}.md`;
+	const file = await getOrCreateFile(plugin, path, `# ${t('futureLog')}\n\n`);
+	let content = await plugin.app.vault.read(file);
+	let changed = false;
+	for (const month of months) {
+		if (content.split('\n').includes(`## ${month.value}`)) continue;
+		content = appendToSection(content, `## ${month.value}`, '');
+		changed = true;
+	}
+	if (changed) await plugin.app.vault.modify(file, content);
+	await plugin.app.workspace.getLeaf(false).openFile(file);
+}
+
+class FutureMonthModal extends Modal {
+	constructor(
+		plugin: JournalPlugin,
+		private readonly months: FutureMonth[],
+		private readonly submit: (month: FutureMonth) => Promise<void>,
+	) {
+		super(plugin.app);
+	}
+
+	onOpen(): void {
+		this.setTitle(t('moveToFutureLog'));
+		this.months.forEach((month, index) => {
+			new Setting(this.contentEl)
+				.setName(month.value)
+				.setDesc(t('monthsAhead', { count: index + 1 }))
+				.addButton((button) => button
+					.setButtonText(t('move'))
+					.setCta()
+					.onClick(() => {
+						void this.submit(month)
+							.then(() => this.close())
+							.catch((error: unknown) => {
+								new Notice(error instanceof Error ? error.message : t('migrationFailed'));
+							});
+					}));
+		});
+	}
+}
+
+function moveToFutureLog(plugin: JournalPlugin, editor: Editor): void {
+	const from = editor.getCursor('from');
+	const to = editor.getCursor('to');
+	const lines = Array.from(
+		{ length: to.line - from.line + 1 },
+		(_, offset) => editor.getLine(from.line + offset),
+	);
+	const tasks = lines.filter((line) => /^\s*•\s+.+$/u.test(line));
+	if (!tasks.length) {
+		new Notice(t('selectTask'));
+		return;
+	}
+
+	new FutureMonthModal(plugin, futureMonths(new Date()), async (month) => {
+		const root = journalFolder(plugin.settings.journalFolder);
+		const folder = `${root}/Future`;
+		await ensureFolder(plugin, folder);
+		const path = `${folder}/${month.year}.md`;
+		const file = await getOrCreateFile(plugin, path, `# ${t('futureLog')}\n\n`);
+		const content = appendToSection(
+			await plugin.app.vault.read(file),
+			`## ${month.value}`,
+			tasks.join('\n'),
+		);
+		await plugin.app.vault.modify(file, content);
+		editor.replaceRange(
+			lines.map((line) => line.replace(/^(\s*)•/u, '$1<')).join('\n'),
+			{ line: from.line, ch: 0 },
+			{ line: to.line, ch: editor.getLine(to.line).length },
+		);
+		new Notice(t('migrated', { count: tasks.length }));
+	}).open();
+}
+
 async function migrateUnfinished(plugin: JournalPlugin): Promise<void> {
 	const today = formatLocalDate(new Date());
 	const folder = `${journalFolder(plugin.settings.journalFolder)}/Daily`;
@@ -198,6 +279,8 @@ function run(action: () => Promise<void>): void {
 export function registerJournalCommands(plugin: JournalPlugin): void {
 	plugin.addCommand({ id: 'open-today', name: t('openToday'), callback: () => run(() => openToday(plugin)) });
 	plugin.addCommand({ id: 'open-current-month', name: t('openCurrentMonth'), callback: () => run(() => openCurrentMonth(plugin)) });
+	plugin.addCommand({ id: 'open-future-log', name: t('openFutureLog'), callback: () => run(() => openFutureLog(plugin)) });
 	plugin.addCommand({ id: 'migrate-unfinished', name: t('migrateUnfinished'), callback: () => run(() => migrateUnfinished(plugin)) });
 	plugin.addCommand({ id: 'migrate-to-date-or-month', name: t('migrateToTarget'), editorCallback: (editor) => migrateManually(plugin, editor) });
+	plugin.addCommand({ id: 'move-to-future-log', name: t('moveToFutureLog'), editorCallback: (editor) => moveToFutureLog(plugin, editor) });
 }

@@ -21,6 +21,8 @@ Use **Open current month** to create the current monthly log. Use **Migrate unfi
 
 Select unfinished task lines and use **Migrate to date or month** to move them manually. Enter `YYYYMMDD` for a daily note or `YYYYMM` for a monthly note.
 
+Use **Open future log** to open or create `Future/YYYY.md` with one section per month for the next six months. Select task lines and use **Move to future log** to schedule them in a future month; the source lines become `<` (scheduled) and the tasks are inserted under the chosen month's section.
+
 ## Development
 
 ```bash
