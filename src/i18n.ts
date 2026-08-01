@@ -1,0 +1,60 @@
+const en = {
+	bulletJournalFolder: 'Bullet journal folder',
+	bulletJournalFolderDesc: 'Vault-relative folder used as this journal.',
+	cancel: 'Cancel',
+	commandFailed: 'Bullet Journal command failed.',
+	cycleBullet: 'Cycle bullet symbol',
+	folderExists: 'A folder already exists at {path}.',
+	folderOutsideVault: 'The Bullet Journal folder must be inside the vault.',
+	migrate: 'Migrate',
+	migrateToTarget: 'Migrate to date or month',
+	migrateUnfinished: 'Migrate unfinished tasks',
+	migrationFailed: 'Migration failed.',
+	migrated: 'Migrated {count} task(s).',
+	noPreviousDaily: 'No previous daily note found.',
+	noTasks: 'No unfinished tasks found.',
+	openCurrentMonth: 'Open current month',
+	openToday: 'Open today',
+	selectTask: 'Select at least one unfinished task.',
+	selectedTasksChanged: 'Selected tasks changed before migration.',
+	target: 'Target',
+	targetDesc: 'Enter a date such as 20260731 or a month such as 202607.',
+	tasks: 'Tasks',
+	validTarget: 'Enter a valid date (YYYYMMDD) or month (YYYYMM).',
+	fileExists: 'A file already exists at {path}.',
+} as const;
+
+const zh: Record<keyof typeof en, string> = {
+	bulletJournalFolder: '子弹笔记文件夹',
+	bulletJournalFolderDesc: '将仓库内的这个文件夹作为一本子弹笔记。',
+	cancel: '取消',
+	commandFailed: '子弹笔记命令执行失败。',
+	cycleBullet: '切换子弹笔记符号',
+	folderExists: '{path} 已存在同名文件夹。',
+	folderOutsideVault: '子弹笔记文件夹必须位于当前仓库内。',
+	migrate: '迁移',
+	migrateToTarget: '迁移到指定日期或月份',
+	migrateUnfinished: '迁移未完成任务',
+	migrationFailed: '迁移失败。',
+	migrated: '已迁移 {count} 个任务。',
+	noPreviousDaily: '没有找到更早的日记录。',
+	noTasks: '没有找到未完成任务。',
+	openCurrentMonth: '打开本月记录',
+	openToday: '打开今日记录',
+	selectTask: '请至少选择一个未完成任务。',
+	selectedTasksChanged: '所选任务已发生变化，请重新迁移。',
+	target: '目标日期或月份',
+	targetDesc: '输入日期（如 20260731）或月份（如 202607）。',
+	tasks: '任务',
+	validTarget: '请输入有效日期（YYYYMMDD）或月份（YYYYMM）。',
+	fileExists: '{path} 已存在同名文件。',
+};
+
+export function t(key: keyof typeof en, values: Record<string, string | number> = {}): string {
+	const locale = activeDocument.documentElement.lang || activeWindow.navigator.language;
+	const messages = locale.toLowerCase().startsWith('zh') ? zh : en;
+	return Object.entries(values).reduce(
+		(message, [name, value]) => message.replace(`{${name}}`, String(value)),
+		messages[key],
+	);
+}

@@ -1,4 +1,5 @@
 import { Editor, Plugin } from 'obsidian';
+import { t } from './i18n';
 
 export const BULLETS = ['•', '×', '>', '<', '–', '○'] as const;
 
@@ -87,7 +88,7 @@ function animateCompletion(rect: DOMRect): void {
 export function registerBulletCommands(plugin: Plugin): void {
 	plugin.addCommand({
 		id: 'cycle-bullet-symbol',
-		name: 'Cycle bullet symbol',
+		name: t('cycleBullet'),
 		editorCallback: cycleCurrentLines,
 	});
 }

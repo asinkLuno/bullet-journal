@@ -2,7 +2,7 @@
 	"id": "bullet-journal",
 	"name": "Bullet Journal",
 	"version": "1.0.0",
-	"minAppVersion": "1.0.0",
+	"minAppVersion": "1.4.0",
 	"description": "Add and cycle Bullet Journal symbols in Markdown notes.",
 	"isDesktopOnly": false
 }
