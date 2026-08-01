@@ -2,15 +2,16 @@ import { Plugin } from 'obsidian';
 
 interface BulletLine {
 	indent: number;
+	signifier: string;
 	text: string;
 }
 
 export function parseBulletLines(text: string): BulletLine[] | null {
 	const lines = text.split('\n').filter((line) => line.trim());
 	const parsed = lines.map((line) => {
-		const match = line.match(/^([ \t]*)([•×><–○]\s+.+)$/u);
+		const match = line.match(/^([ \t]*)([*!?]\s+)?([•×><–○]\s+.+)$/u);
 		return match
-			? { indent: (match[1] ?? '').replaceAll('\t', '    ').length, text: match[2] ?? '' }
+			? { indent: (match[1] ?? '').replaceAll('\t', '    ').length, signifier: match[2] ?? '', text: match[3] ?? '' }
 			: null;
 	});
 	return parsed.length && parsed.every((line) => line !== null)
@@ -31,10 +32,12 @@ function renderBulletList(lines: BulletLine[]): HTMLUListElement {
 			const nested = previous.createEl('ul', { cls: 'bullet-journal-list' });
 			levels.push({ indent: line.indent, list: nested });
 		}
-		const item = levels.at(-1)?.list.createEl('li', {
-			cls: 'bullet-journal-item',
-			text: line.text,
-		});
+		const item = levels.at(-1)?.list.createEl('li', { cls: 'bullet-journal-item' });
+		if (item) {
+			if (line.signifier)
+				item.createSpan({ cls: 'bullet-journal-signifier', text: line.signifier.trim() });
+			item.appendText(line.text);
+		}
 		previous = item ?? null;
 	}
 	return root;

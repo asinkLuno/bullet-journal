@@ -1,9 +1,10 @@
-import { Editor, Modal, Notice, Plugin, Setting, TFile, TFolder, normalizePath } from 'obsidian';
+import { Editor, Modal, Notice, Plugin, Setting, TFile, TFolder, debounce, normalizePath } from 'obsidian';
 import { formatLocalDate, formatLocalMonth, parseMigrationTarget } from './date';
 import { FutureMonth, appendToSection, futureMonths } from './future';
+import { WEEKDAYS_EN, WEEKDAYS_ZH, monthCalendar } from './calendar';
 import { DEFAULT_SETTINGS, BulletJournalSettings } from './settings';
 import { UnfinishedTask, findUnfinishedTasks } from './tasks';
-import { t } from './i18n';
+import { isChineseLocale, t } from './i18n';
 
 interface JournalPlugin extends Plugin {
 	settings: BulletJournalSettings;
@@ -34,6 +35,13 @@ async function getOrCreateFile(plugin: Plugin, path: string, content: string): P
 	return existing ?? plugin.app.vault.create(path, content);
 }
 
+function tasksHeading(content: string): string {
+	for (const heading of ['## Tasks', '## 任务']) {
+		if (content.split('\n').includes(heading)) return heading;
+	}
+	return `## ${t('tasks')}`;
+}
+
 async function getTodayFile(plugin: JournalPlugin): Promise<TFile> {
 	const date = formatLocalDate(new Date());
 	const folder = `${journalFolder(plugin.settings.journalFolder)}/Daily`;
@@ -45,16 +53,24 @@ async function openToday(plugin: JournalPlugin): Promise<void> {
 	await plugin.app.workspace.getLeaf(false).openFile(await getTodayFile(plugin));
 }
 
-async function openCurrentMonth(plugin: JournalPlugin): Promise<void> {
-	const month = formatLocalMonth(new Date());
+async function ensureCurrentMonth(plugin: JournalPlugin): Promise<TFile> {
+	const now = new Date();
+	const month = formatLocalMonth(now);
 	const folder = `${journalFolder(plugin.settings.journalFolder)}/Monthly`;
 	await ensureFolder(plugin, folder);
-	const file = await getOrCreateFile(
+	return getOrCreateFile(
 		plugin,
 		`${folder}/${month}.md`,
-		`# ${month}\n\n## ${t('tasks')}\n\n`,
+		`# ${month}\n\n## ${t('calendar')}\n\n${monthCalendar(
+			now.getFullYear(),
+			now.getMonth() + 1,
+			isChineseLocale() ? WEEKDAYS_ZH : WEEKDAYS_EN,
+		)}\n\n## ${t('tasks')}\n\n`,
 	);
-	await plugin.app.workspace.getLeaf(false).openFile(file);
+}
+
+async function openCurrentMonth(plugin: JournalPlugin): Promise<void> {
+	await plugin.app.workspace.getLeaf(false).openFile(await ensureCurrentMonth(plugin));
 }
 
 class MigrationModal extends Modal {
@@ -125,21 +141,41 @@ class ManualMigrationModal extends Modal {
 	}
 }
 
-async function openFutureLog(plugin: JournalPlugin): Promise<void> {
+async function ensureFutureLog(plugin: JournalPlugin): Promise<TFile | null> {
 	const months = futureMonths(new Date());
 	const folder = `${journalFolder(plugin.settings.journalFolder)}/Future`;
 	await ensureFolder(plugin, folder);
-	const path = `${folder}/${months[0]?.year ?? new Date().getFullYear()}.md`;
-	const file = await getOrCreateFile(plugin, path, `# ${t('futureLog')}\n\n`);
-	let content = await plugin.app.vault.read(file);
-	let changed = false;
+	const byYear = new Map<number, FutureMonth[]>();
 	for (const month of months) {
-		if (content.split('\n').includes(`## ${month.value}`)) continue;
-		content = appendToSection(content, `## ${month.value}`, '');
-		changed = true;
+		byYear.set(month.year, [...(byYear.get(month.year) ?? []), month]);
 	}
-	if (changed) await plugin.app.vault.modify(file, content);
-	await plugin.app.workspace.getLeaf(false).openFile(file);
+	let primary: TFile | null = null;
+	for (const [year, yearMonths] of byYear) {
+		const file = await getOrCreateFile(plugin, `${folder}/${year}.md`, `# ${t('futureLog')}\n\n`);
+		let content = await plugin.app.vault.read(file);
+		let changed = false;
+		for (const month of yearMonths) {
+			if (content.split('\n').includes(`## ${month.value}`)) continue;
+			content = appendToSection(content, `## ${month.value}`, '');
+			changed = true;
+		}
+		if (changed) await plugin.app.vault.modify(file, content);
+		if (year === months[0]?.year) primary = file;
+	}
+	return primary;
+}
+
+async function openFutureLog(plugin: JournalPlugin): Promise<void> {
+	const primary = await ensureFutureLog(plugin);
+	if (primary) await plugin.app.workspace.getLeaf(false).openFile(primary);
+}
+
+async function setupJournal(plugin: JournalPlugin): Promise<void> {
+	await refreshIndex(plugin);
+	await ensureFutureLog(plugin);
+	await ensureCurrentMonth(plugin);
+	await getTodayFile(plugin);
+	new Notice(t('journalReady'));
 }
 
 class FutureMonthModal extends Modal {
@@ -234,6 +270,115 @@ async function migrateUnfinished(plugin: JournalPlugin): Promise<void> {
 	}).open();
 }
 
+async function migrateMonthlyUnfinished(plugin: JournalPlugin): Promise<void> {
+	const month = formatLocalMonth(new Date());
+	const folder = `${journalFolder(plugin.settings.journalFolder)}/Monthly`;
+	const previous = plugin.app.vault.getMarkdownFiles()
+		.filter((file) => file.parent?.path === folder && file.basename < month)
+		.sort((a, b) => b.basename.localeCompare(a.basename))[0];
+	if (!previous) throw new Error(t('noPreviousMonthly'));
+
+	const source = await plugin.app.vault.read(previous);
+	const tasks = findUnfinishedTasks(source);
+	if (!tasks.length) throw new Error(t('noTasks'));
+
+	new MigrationModal(plugin, tasks, async (selected) => {
+		if (!selected.size) return;
+		const current = await plugin.app.vault.read(previous);
+		const lines = current.split('\n');
+		const migrated: string[] = [];
+		for (const task of tasks.filter((item) => selected.has(item.line))) {
+			if (lines[task.line] !== task.text) continue;
+			lines[task.line] = task.text.replace('•', '>');
+			migrated.push(task.content);
+		}
+		if (!migrated.length) throw new Error(t('selectedTasksChanged'));
+		const file = await getOrCreateFile(
+			plugin,
+			`${folder}/${month}.md`,
+			`# ${month}\n\n## ${t('tasks')}\n\n`,
+		);
+		const content = await plugin.app.vault.read(file);
+		await plugin.app.vault.modify(file, appendToSection(content, tasksHeading(content), migrated.join('\n')));
+		await plugin.app.vault.modify(previous, lines.join('\n'));
+		new Notice(t('migrated', { count: migrated.length }));
+	}).open();
+}
+
+async function migrateFromFutureLog(plugin: JournalPlugin): Promise<void> {
+	const now = new Date();
+	const month = formatLocalMonth(now);
+	const root = journalFolder(plugin.settings.journalFolder);
+	const folder = plugin.app.vault.getAbstractFileByPath(`${root}/Future`);
+	if (!(folder instanceof TFolder)) throw new Error(t('noFutureLog'));
+
+	const monthHeading = `## ${month}`;
+	let source: TFile | null = null;
+	let lines: string[] = [];
+	for (const candidate of folder.children.filter((child): child is TFile => child instanceof TFile)) {
+		const candidateLines = (await plugin.app.vault.read(candidate)).split('\n');
+		if (candidateLines.includes(monthHeading)) {
+			source = candidate;
+			lines = candidateLines;
+			break;
+		}
+	}
+	if (!source) throw new Error(t('noFutureTasks'));
+
+	const start = lines.findIndex((line) => line === monthHeading);
+	let end = start + 1;
+	while (end < lines.length && !/^##\s/u.test(lines[end] ?? '')) end++;
+	const tasks = lines.slice(start + 1, end).filter((line) => line.trim().length > 0);
+	if (!tasks.length) throw new Error(t('noFutureTasks'));
+
+	const monthly = await getOrCreateFile(
+		plugin,
+		`${root}/Monthly/${month}.md`,
+		`# ${month}\n\n## ${t('tasks')}\n\n`,
+	);
+	const content = await plugin.app.vault.read(monthly);
+	await plugin.app.vault.modify(monthly, appendToSection(content, tasksHeading(content), tasks.join('\n')));
+	await plugin.app.vault.modify(source, [...lines.slice(0, start + 1), '', ...lines.slice(end)].join('\n'));
+	new Notice(t('migratedFromFuture', { count: tasks.length, month }));
+}
+
+async function buildIndex(plugin: JournalPlugin): Promise<string | null> {
+	const root = journalFolder(plugin.settings.journalFolder);
+	const sections: [string, string[]][] = [];
+	for (const [sub, heading] of [['Daily', t('daily')], ['Monthly', t('monthly')], ['Future', t('futureLog')]] as const) {
+		const files = plugin.app.vault.getMarkdownFiles()
+			.filter((file) => file.parent?.path === `${root}/${sub}`)
+			.map((file) => file.basename)
+			.sort((a, b) => a.localeCompare(b));
+		if (files.length) sections.push([heading, files]);
+	}
+	if (!sections.length) return null;
+	return `# ${t('index')}\n\n${sections
+		.map(([heading, files]) => `## ${heading}\n\n${files.map((file) => `- [[${file}]]`).join('\n')}\n`)
+		.join('\n')}`;
+}
+
+async function writeIndex(plugin: JournalPlugin, content: string): Promise<TFile> {
+	const path = `${journalFolder(plugin.settings.journalFolder)}/Index.md`;
+	const existing = plugin.app.vault.getAbstractFileByPath(path);
+	if (existing && !(existing instanceof TFile)) throw new Error(t('fileExists', { path }));
+	const file = existing ?? await plugin.app.vault.create(path, content);
+	if (existing && (await plugin.app.vault.read(file)) !== content)
+		await plugin.app.vault.modify(file, content);
+	return file;
+}
+
+async function refreshIndex(plugin: JournalPlugin): Promise<void> {
+	const content = await buildIndex(plugin);
+	if (content !== null) await writeIndex(plugin, content);
+}
+
+async function updateIndex(plugin: JournalPlugin): Promise<void> {
+	const content = await buildIndex(plugin);
+	if (content === null) throw new Error(t('noJournalEntries'));
+	await plugin.app.workspace.getLeaf(false).openFile(await writeIndex(plugin, content));
+}
+
 function migrateManually(plugin: JournalPlugin, editor: Editor): void {
 	const from = editor.getCursor('from');
 	const to = editor.getCursor('to');
@@ -257,10 +402,13 @@ function migrateManually(plugin: JournalPlugin, editor: Editor): void {
 		const heading = target.kind === 'daily'
 			? `# ${target.value}\n\n`
 			: `# ${target.value}\n\n## ${t('tasks')}\n\n`;
-		await plugin.app.vault.append(
-			await getOrCreateFile(plugin, path, heading),
-			`${tasks.join('\n')}\n`,
-		);
+		const file = await getOrCreateFile(plugin, path, heading);
+		const content = await plugin.app.vault.read(file);
+		if (target.kind === 'daily') {
+			await plugin.app.vault.append(file, `${tasks.join('\n')}\n`);
+		} else {
+			await plugin.app.vault.modify(file, appendToSection(content, tasksHeading(content), tasks.join('\n')));
+		}
 		editor.replaceRange(
 			lines.map((line) => line.replace(/^(\s*)•/u, '$1>')).join('\n'),
 			{ line: from.line, ch: 0 },
@@ -270,6 +418,14 @@ function migrateManually(plugin: JournalPlugin, editor: Editor): void {
 	}).open();
 }
 
+function isJournalPath(plugin: JournalPlugin, path: string): boolean {
+	const root = journalFolder(plugin.settings.journalFolder);
+	return path === `${root}/Index.md`
+		|| path.startsWith(`${root}/Daily/`)
+		|| path.startsWith(`${root}/Monthly/`)
+		|| path.startsWith(`${root}/Future/`);
+}
+
 function run(action: () => Promise<void>): void {
 	void action().catch((error: unknown) => {
 		new Notice(error instanceof Error ? error.message : t('commandFailed'));
@@ -277,10 +433,26 @@ function run(action: () => Promise<void>): void {
 }
 
 export function registerJournalCommands(plugin: JournalPlugin): void {
+	const refreshIndexDebounced = debounce(() => {
+		void refreshIndex(plugin).catch(() => { /* 自动刷新失败静默 */ });
+	}, 1000, true);
+	plugin.registerEvent(plugin.app.vault.on('create', (file) => {
+		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();
+	}));
+	plugin.registerEvent(plugin.app.vault.on('rename', (file) => {
+		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();
+	}));
+	plugin.registerEvent(plugin.app.vault.on('delete', (file) => {
+		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();
+	}));
 	plugin.addCommand({ id: 'open-today', name: t('openToday'), callback: () => run(() => openToday(plugin)) });
 	plugin.addCommand({ id: 'open-current-month', name: t('openCurrentMonth'), callback: () => run(() => openCurrentMonth(plugin)) });
 	plugin.addCommand({ id: 'open-future-log', name: t('openFutureLog'), callback: () => run(() => openFutureLog(plugin)) });
+	plugin.addCommand({ id: 'setup-journal', name: t('setupJournal'), callback: () => run(() => setupJournal(plugin)) });
 	plugin.addCommand({ id: 'migrate-unfinished', name: t('migrateUnfinished'), callback: () => run(() => migrateUnfinished(plugin)) });
+	plugin.addCommand({ id: 'migrate-monthly-unfinished', name: t('migrateMonthlyUnfinished'), callback: () => run(() => migrateMonthlyUnfinished(plugin)) });
+	plugin.addCommand({ id: 'migrate-from-future-log', name: t('migrateFromFutureLog'), callback: () => run(() => migrateFromFutureLog(plugin)) });
+	plugin.addCommand({ id: 'update-index', name: t('updateIndex'), callback: () => run(() => updateIndex(plugin)) });
 	plugin.addCommand({ id: 'migrate-to-date-or-month', name: t('migrateToTarget'), editorCallback: (editor) => migrateManually(plugin, editor) });
 	plugin.addCommand({ id: 'move-to-future-log', name: t('moveToFutureLog'), editorCallback: (editor) => moveToFutureLog(plugin, editor) });
 }

@@ -2,14 +2,41 @@ import { Editor, Plugin } from 'obsidian';
 import { t } from './i18n';
 
 export const BULLETS = ['•', '×', '>', '<', '–', '○'] as const;
+export const SIGNIFIERS = ['*', '!', '?'] as const;
 
 export function cycleBullet(line: string): string {
-	const match = line.match(/^(\s*)(?:[-*+]\s+)?([•×><–○])?\s*(.*)$/u);
+	const match = line.match(/^(\s*)([*!?]\s+(?=[•×><–○]))?(?:[-*+]\s+)?([•×><–○])?\s*(.*)$/u);
 	if (!match) return line;
 
-	const [, indent = '', current, content = ''] = match;
+	const [, indent = '', signifier = '', current, content = ''] = match;
 	const index = current ? BULLETS.indexOf(current as (typeof BULLETS)[number]) : -1;
-	return `${indent}${BULLETS[(index + 1) % BULLETS.length]} ${content}`.trimEnd();
+	return `${indent}${signifier}${BULLETS[(index + 1) % BULLETS.length]} ${content}`.trimEnd();
+}
+
+export function cycleSignifier(line: string): string {
+	const match = line.match(/^(\s*)([*!?]\s+)?([•×><–○]\s+.*)$/u);
+	if (!match) return line;
+
+	const [, indent = '', signifier = '', rest = ''] = match;
+	if (!signifier) return `${indent}${SIGNIFIERS[0]} ${rest}`;
+	const index = SIGNIFIERS.indexOf(signifier.trim() as (typeof SIGNIFIERS)[number]);
+	return index === SIGNIFIERS.length - 1
+		? `${indent}${rest}`
+		: `${indent}${SIGNIFIERS[index + 1]} ${rest}`;
+}
+
+function forEachSelectedLine(editor: Editor, transform: (line: string) => string): void {
+	const from = editor.getCursor('from');
+	const to = editor.getCursor('to');
+	const lines = Array.from(
+		{ length: to.line - from.line + 1 },
+		(_, offset) => editor.getLine(from.line + offset),
+	);
+	editor.replaceRange(
+		lines.map(transform).join('\n'),
+		{ line: from.line, ch: 0 },
+		{ line: to.line, ch: editor.getLine(to.line).length },
+	);
 }
 
 function cycleCurrentLines(editor: Editor): void {
@@ -22,11 +49,7 @@ function cycleCurrentLines(editor: Editor): void {
 	const completionRect = lines[0]?.includes('•')
 		? findActiveSymbol('•')
 		: null;
-	editor.replaceRange(
-		lines.map(cycleBullet).join('\n'),
-		{ line: from.line, ch: 0 },
-		{ line: to.line, ch: editor.getLine(to.line).length },
-	);
+	forEachSelectedLine(editor, cycleBullet);
 	if (completionRect) animateCompletion(completionRect);
 }
 
@@ -90,5 +113,10 @@ export function registerBulletCommands(plugin: Plugin): void {
 		id: 'cycle-bullet-symbol',
 		name: t('cycleBullet'),
 		editorCallback: cycleCurrentLines,
+	});
+	plugin.addCommand({
+		id: 'cycle-signifier',
+		name: t('cycleSignifier'),
+		editorCallback: (editor) => forEachSelectedLine(editor, cycleSignifier),
 	});
 }

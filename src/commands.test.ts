@@ -1,5 +1,6 @@
-import { cycleBullet } from './commands';
+import { cycleBullet, cycleSignifier } from './commands';
 import { parseBulletLines } from './rendering';
+import { monthCalendar } from './calendar';
 import { formatLocalDate, formatLocalMonth, parseMigrationTarget } from './date';
 import { appendToSection, futureMonths } from './future';
 import { findUnfinishedTasks } from './tasks';
@@ -46,3 +47,31 @@ if (!appendToSection(withSections, '## 2026-09', '• Book flight').includes('##
 
 if (appendToSection('# Future Log\n', '## 2026-09', '• Book flight').split('\n').includes('• Book flight') !== true)
 	throw new Error('Failed to append a missing section');
+if (!appendToSection('', '## 2026-09', '• First').startsWith('## 2026-09'))
+	throw new Error('Failed to handle empty content');
+
+if (parseMigrationTarget('000001') !== null)
+	throw new Error('Accepted an invalid migration month');
+
+if (cycleSignifier('• Task') !== '* • Task')
+	throw new Error('Failed to add a signifier');
+if (cycleSignifier('* • Task') !== '! • Task')
+	throw new Error('Failed to cycle signifier');
+if (cycleSignifier('! • Task') !== '? • Task')
+	throw new Error('Failed to cycle signifier');
+if (cycleSignifier('? • Task') !== '• Task')
+	throw new Error('Failed to remove signifier');
+if (cycleBullet('* • Task') !== '* × Task')
+	throw new Error('Failed to keep signifier when cycling bullet');
+if (cycleBullet('* item') !== '• item')
+	throw new Error('Signifier regex must not swallow plain list items');
+if (parseBulletLines('* • Task')?.[0]?.signifier.trim() !== '*')
+	throw new Error('Failed to parse signifier');
+
+const calendar = monthCalendar(2026, 8, ['一', '二', '三', '四', '五', '六', '日']);
+if (!calendar.includes('|    |    |    |    |    | 1 | 2 |'))
+	throw new Error('Failed to align calendar to Monday start');
+if (!calendar.includes('| 31 |'))
+	throw new Error('Failed to render the full month');
+if (calendar.split('\n').length !== 8)
+	throw new Error('Failed calendar row count');

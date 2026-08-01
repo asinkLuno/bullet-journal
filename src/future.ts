@@ -23,7 +23,8 @@ export function appendToSection(content: string, section: string, block: string)
 	const start = lines.findIndex((line) => line === section);
 	if (start < 0) {
 		const tail = blockLines.length ? `\n\n${blockLines.join('\n')}` : '';
-		return `${content.trimEnd()}\n\n${section}${tail}\n`;
+		const base = content.trimEnd();
+		return `${base ? `${base}\n\n` : ''}${section}${tail}\n`;
 	}
 	let end = start + 1;
 	while (end < lines.length && !/^##\s/u.test(lines[end] ?? '')) end++;

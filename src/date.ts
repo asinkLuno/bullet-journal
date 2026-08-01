@@ -14,8 +14,9 @@ export type MigrationTarget = { kind: 'daily' | 'monthly'; value: string };
 
 export function parseMigrationTarget(input: string): MigrationTarget | null {
 	if (/^\d{6}$/u.test(input)) {
+		const year = Number(input.slice(0, 4));
 		const month = Number(input.slice(4));
-		return month >= 1 && month <= 12
+		return year >= 1000 && month >= 1 && month <= 12
 			? { kind: 'monthly', value: `${input.slice(0, 4)}-${input.slice(4)}` }
 			: null;
 	}

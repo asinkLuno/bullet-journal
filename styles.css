@@ -37,6 +37,12 @@
 	content: none;
 }
 
+.markdown-rendered .bullet-journal-signifier {
+	color: var(--text-accent);
+	font-weight: bold;
+	margin-inline-end: 0.25em;
+}
+
 .markdown-rendered .bullet-journal-list {
 	padding-inline-start: var(--list-indent);
 }
