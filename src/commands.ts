@@ -1,20 +1,21 @@
 import { Editor, Plugin } from 'obsidian';
 import { t } from './i18n';
 
-export const BULLETS = ['•', '×', '>', '<', '–', '○'] as const;
+export const BULLETS = ['•', '×', '\\>', '<', '–', '○'] as const;
 export const SIGNIFIERS = ['*', '!', '?'] as const;
 
 export function cycleBullet(line: string): string {
-	const match = line.match(/^(\s*)([*!?]\s+(?=[•×><–○]))?(?:[-*+]\s+)?([•×><–○])?\s*(.*)$/u);
+	const match = line.match(/^(\s*)([*!?]\s+(?=[•×<–○]|\\?>))?(?:[-*+]\s+)?([•×<–○]|\\?>)?\s*(.*)$/u);
 	if (!match) return line;
 
 	const [, indent = '', signifier = '', current, content = ''] = match;
-	const index = current ? BULLETS.indexOf(current as (typeof BULLETS)[number]) : -1;
+	const normalized = current === '>' ? '\\>' : current;
+	const index = normalized ? BULLETS.indexOf(normalized as (typeof BULLETS)[number]) : -1;
 	return `${indent}${signifier}${BULLETS[(index + 1) % BULLETS.length]} ${content}`.trimEnd();
 }
 
 export function cycleSignifier(line: string): string {
-	const match = line.match(/^(\s*)([*!?]\s+)?([•×><–○]\s+.*)$/u);
+	const match = line.match(/^(\s*)([*!?]\s+)?((?:[•×<–○]|\\?>)\s+.*)$/u);
 	if (!match) return line;
 
 	const [, indent = '', signifier = '', rest = ''] = match;

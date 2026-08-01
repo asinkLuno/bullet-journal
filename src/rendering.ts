@@ -9,9 +9,9 @@ interface BulletLine {
 export function parseBulletLines(text: string): BulletLine[] | null {
 	const lines = text.split('\n').filter((line) => line.trim());
 	const parsed = lines.map((line) => {
-		const match = line.match(/^([ \t]*)([*!?]\s+)?([•×><–○]\s+.+)$/u);
+		const match = line.match(/^([ \t]*)([*!?]\s+)?((?:[•×<–○]|\\?>)\s+.+)$/u);
 		return match
-			? { indent: (match[1] ?? '').replaceAll('\t', '    ').length, signifier: match[2] ?? '', text: match[3] ?? '' }
+			? { indent: (match[1] ?? '').replaceAll('\t', '    ').length, signifier: match[2] ?? '', text: (match[3] ?? '').replace(/^\\>/u, '>') }
 			: null;
 	});
 	return parsed.length && parsed.every((line) => line !== null)

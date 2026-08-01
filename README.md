@@ -8,7 +8,7 @@ Place the cursor on a line, or select several lines, then run **Bullet Journal: 
 
 - `•` task
 - `×` completed task
-- `>` migrated task
+- `\>` migrated task (displayed as `>` without becoming a Markdown quote)
 - `<` scheduled task
 - `–` note
 - `○` event
@@ -23,13 +23,13 @@ Use **Open current month** to create the current monthly log with a calendar pag
 
 Select unfinished task lines and use **Migrate to date or month** to move them manually. Enter `YYYYMMDD` for a daily note or `YYYYMM` for a monthly note.
 
-Use **Migrate last month's unfinished tasks** at the end of the month: selected tasks move from the previous monthly log into this month's tasks section, and the source lines become `>`.
+Use **Migrate last month's unfinished tasks** at the end of the month: unfinished tasks are collected from last month's Monthly and Daily Logs. Selected tasks move into this month's tasks section, and the source lines become `>`.
 
-Use **Migrate tasks from future log** to pull the current month's section of the future log into this month's monthly log, then clear that section.
+Use **Migrate tasks from future log** to pull the current month's unfinished tasks into this month's monthly log, then mark the source tasks as migrated.
 
 Use **Open future log** to open or create `Future/YYYY.md` with one section per month for the next six months. Select task lines and use **Move to future log** to schedule them in a future month; the source lines become `<` (scheduled) and the tasks are inserted under the chosen month's section.
 
-Run **Update index** to generate `Index.md` inside the journal folder, linking all daily, monthly, and future log entries as wikilinks (Obsidian resolves them and shows backlinks). The index also refreshes automatically when entries are created, renamed, or deleted.
+Run **Update index** to generate `Index.md` inside the journal folder, linking all daily, monthly, and future log entries as wikilinks (Obsidian resolves them and shows backlinks). Including Daily Logs is an intentional digital adaptation of the original method. The index also refreshes automatically when entries are created, renamed, or deleted.
 
 Use **Set up journal** to initialize the whole structure at once, in the order suggested by the Bullet Journal Method: Index → Future Log → Monthly Log → today's Daily Log.
 
@@ -43,8 +43,8 @@ Use **Set up journal** to initialize the whole structure at once, in the order s
 ## Development
 
 ```bash
-yarn install
-yarn build
+npm install
+npm run build
 ```
 
 For manual installation, copy `main.js`, `manifest.json`, and `styles.css` into `<Vault>/.obsidian/plugins/bullet-journal/`.

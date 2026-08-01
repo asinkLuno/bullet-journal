@@ -1,10 +1,11 @@
-import { Editor, Modal, Notice, Plugin, Setting, TFile, TFolder, debounce, normalizePath } from 'obsidian';
+import { Editor, Notice, Plugin, TFile, TFolder, debounce, normalizePath } from 'obsidian';
 import { formatLocalDate, formatLocalMonth, parseMigrationTarget } from './date';
 import { FutureMonth, appendToSection, futureMonths } from './future';
 import { WEEKDAYS_EN, WEEKDAYS_ZH, monthCalendar } from './calendar';
 import { DEFAULT_SETTINGS, BulletJournalSettings } from './settings';
-import { UnfinishedTask, findUnfinishedTasks } from './tasks';
+import { findUnfinishedTasks, isUnfinishedTask, markTask } from './tasks';
 import { isChineseLocale, t } from './i18n';
+import { FutureMonthModal, ManualMigrationModal, MigrationModal } from './migration-modal';
 
 interface JournalPlugin extends Plugin {
 	settings: BulletJournalSettings;
@@ -73,74 +74,6 @@ async function openCurrentMonth(plugin: JournalPlugin): Promise<void> {
 	await plugin.app.workspace.getLeaf(false).openFile(await ensureCurrentMonth(plugin));
 }
 
-class MigrationModal extends Modal {
-	private readonly selected = new Set<number>();
-
-	constructor(
-		plugin: JournalPlugin,
-		private readonly tasks: UnfinishedTask[],
-		private readonly migrate: (selected: Set<number>) => Promise<void>,
-	) {
-		super(plugin.app);
-	}
-
-	onOpen(): void {
-		this.setTitle(t('migrateUnfinished'));
-		for (const task of this.tasks) {
-			new Setting(this.contentEl)
-				.setName(task.content.trimStart())
-				.addToggle((toggle) => toggle.onChange((checked) => {
-					if (checked) this.selected.add(task.line);
-					else this.selected.delete(task.line);
-				}));
-		}
-		new Setting(this.contentEl)
-			.addButton((button) => button.setButtonText(t('cancel')).onClick(() => this.close()))
-			.addButton((button) => button
-				.setButtonText(t('migrate'))
-				.setCta()
-				.onClick(() => {
-					void this.migrate(this.selected)
-						.then(() => this.close())
-						.catch((error: unknown) => {
-							new Notice(error instanceof Error ? error.message : t('migrationFailed'));
-						});
-				}));
-	}
-}
-
-class ManualMigrationModal extends Modal {
-	constructor(
-		plugin: JournalPlugin,
-		private readonly submit: (target: string) => Promise<void>,
-	) {
-		super(plugin.app);
-	}
-
-	onOpen(): void {
-		this.setTitle(t('migrateToTarget'));
-		let target = '';
-		new Setting(this.contentEl)
-			.setName(t('target'))
-			.setDesc(t('targetDesc'))
-			.addText((text) => text
-				.setPlaceholder('20260731')
-				.onChange((value) => { target = value.trim(); }));
-		new Setting(this.contentEl)
-			.addButton((button) => button.setButtonText(t('cancel')).onClick(() => this.close()))
-			.addButton((button) => button
-				.setButtonText(t('migrate'))
-				.setCta()
-				.onClick(() => {
-					void this.submit(target)
-						.then(() => this.close())
-						.catch((error: unknown) => {
-							new Notice(error instanceof Error ? error.message : t('migrationFailed'));
-						});
-				}));
-	}
-}
-
 async function ensureFutureLog(plugin: JournalPlugin): Promise<TFile | null> {
 	const months = futureMonths(new Date());
 	const folder = `${journalFolder(plugin.settings.journalFolder)}/Future`;
@@ -171,40 +104,11 @@ async function openFutureLog(plugin: JournalPlugin): Promise<void> {
 }
 
 async function setupJournal(plugin: JournalPlugin): Promise<void> {
-	await refreshIndex(plugin);
 	await ensureFutureLog(plugin);
 	await ensureCurrentMonth(plugin);
 	await getTodayFile(plugin);
+	await refreshIndex(plugin);
 	new Notice(t('journalReady'));
-}
-
-class FutureMonthModal extends Modal {
-	constructor(
-		plugin: JournalPlugin,
-		private readonly months: FutureMonth[],
-		private readonly submit: (month: FutureMonth) => Promise<void>,
-	) {
-		super(plugin.app);
-	}
-
-	onOpen(): void {
-		this.setTitle(t('moveToFutureLog'));
-		this.months.forEach((month, index) => {
-			new Setting(this.contentEl)
-				.setName(month.value)
-				.setDesc(t('monthsAhead', { count: index + 1 }))
-				.addButton((button) => button
-					.setButtonText(t('move'))
-					.setCta()
-					.onClick(() => {
-						void this.submit(month)
-							.then(() => this.close())
-							.catch((error: unknown) => {
-								new Notice(error instanceof Error ? error.message : t('migrationFailed'));
-							});
-					}));
-		});
-	}
 }
 
 function moveToFutureLog(plugin: JournalPlugin, editor: Editor): void {
@@ -214,7 +118,7 @@ function moveToFutureLog(plugin: JournalPlugin, editor: Editor): void {
 		{ length: to.line - from.line + 1 },
 		(_, offset) => editor.getLine(from.line + offset),
 	);
-	const tasks = lines.filter((line) => /^\s*•\s+.+$/u.test(line));
+	const tasks = lines.filter(isUnfinishedTask);
 	if (!tasks.length) {
 		new Notice(t('selectTask'));
 		return;
@@ -233,7 +137,7 @@ function moveToFutureLog(plugin: JournalPlugin, editor: Editor): void {
 		);
 		await plugin.app.vault.modify(file, content);
 		editor.replaceRange(
-			lines.map((line) => line.replace(/^(\s*)•/u, '$1<')).join('\n'),
+			lines.map((line) => markTask(line, '<')).join('\n'),
 			{ line: from.line, ch: 0 },
 			{ line: to.line, ch: editor.getLine(to.line).length },
 		);
@@ -258,9 +162,9 @@ async function migrateUnfinished(plugin: JournalPlugin): Promise<void> {
 		const current = await plugin.app.vault.read(previous);
 		const lines = current.split('\n');
 		const migrated: string[] = [];
-		for (const task of tasks.filter((item) => selected.has(item.line))) {
+		for (const task of tasks.filter((_, index) => selected.has(index))) {
 			if (lines[task.line] !== task.text) continue;
-			lines[task.line] = task.text.replace('•', '>');
+			lines[task.line] = markTask(task.text, '>');
 			migrated.push(task.content);
 		}
 		if (!migrated.length) throw new Error(t('selectedTasksChanged'));
@@ -271,28 +175,37 @@ async function migrateUnfinished(plugin: JournalPlugin): Promise<void> {
 }
 
 async function migrateMonthlyUnfinished(plugin: JournalPlugin): Promise<void> {
-	const month = formatLocalMonth(new Date());
-	const folder = `${journalFolder(plugin.settings.journalFolder)}/Monthly`;
-	const previous = plugin.app.vault.getMarkdownFiles()
-		.filter((file) => file.parent?.path === folder && file.basename < month)
-		.sort((a, b) => b.basename.localeCompare(a.basename))[0];
-	if (!previous) throw new Error(t('noPreviousMonthly'));
+	const now = new Date();
+	const month = formatLocalMonth(now);
+	const previousMonth = formatLocalMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+	const root = journalFolder(plugin.settings.journalFolder);
+	const folder = `${root}/Monthly`;
+	const sources = plugin.app.vault.getMarkdownFiles().filter((file) =>
+		(file.parent?.path === folder && file.basename === previousMonth)
+		|| (file.parent?.path === `${root}/Daily` && file.basename.startsWith(`${previousMonth}-`)),
+	);
+	if (!sources.length) throw new Error(t('noPreviousMonthly'));
 
-	const source = await plugin.app.vault.read(previous);
-	const tasks = findUnfinishedTasks(source);
-	if (!tasks.length) throw new Error(t('noTasks'));
+	const candidates = (await Promise.all(sources.map(async (file) =>
+		findUnfinishedTasks(await plugin.app.vault.read(file)).map((task) => ({ file, task })),
+	))).flat();
+	if (!candidates.length) throw new Error(t('noTasks'));
 
-	new MigrationModal(plugin, tasks, async (selected) => {
+	new MigrationModal(plugin, candidates.map(({ file, task }) => ({
+		content: `${file.basename}: ${task.content.trimStart()}`,
+	})), async (selected) => {
 		if (!selected.size) return;
-		const current = await plugin.app.vault.read(previous);
-		const lines = current.split('\n');
+		const changes = new Map<TFile, string[]>();
 		const migrated: string[] = [];
-		for (const task of tasks.filter((item) => selected.has(item.line))) {
+		for (const { file, task } of candidates.filter((_, index) => selected.has(index))) {
+			const lines = changes.get(file) ?? (await plugin.app.vault.read(file)).split('\n');
 			if (lines[task.line] !== task.text) continue;
-			lines[task.line] = task.text.replace('•', '>');
+			lines[task.line] = markTask(task.text, '>');
 			migrated.push(task.content);
+			changes.set(file, lines);
 		}
 		if (!migrated.length) throw new Error(t('selectedTasksChanged'));
+		await ensureFolder(plugin, folder);
 		const file = await getOrCreateFile(
 			plugin,
 			`${folder}/${month}.md`,
@@ -300,7 +213,8 @@ async function migrateMonthlyUnfinished(plugin: JournalPlugin): Promise<void> {
 		);
 		const content = await plugin.app.vault.read(file);
 		await plugin.app.vault.modify(file, appendToSection(content, tasksHeading(content), migrated.join('\n')));
-		await plugin.app.vault.modify(previous, lines.join('\n'));
+		for (const [source, lines] of changes)
+			await plugin.app.vault.modify(source, lines.join('\n'));
 		new Notice(t('migrated', { count: migrated.length }));
 	}).open();
 }
@@ -328,17 +242,23 @@ async function migrateFromFutureLog(plugin: JournalPlugin): Promise<void> {
 	const start = lines.findIndex((line) => line === monthHeading);
 	let end = start + 1;
 	while (end < lines.length && !/^##\s/u.test(lines[end] ?? '')) end++;
-	const tasks = lines.slice(start + 1, end).filter((line) => line.trim().length > 0);
+	const tasks = findUnfinishedTasks(lines.slice(start + 1, end).join('\n'));
 	if (!tasks.length) throw new Error(t('noFutureTasks'));
 
+	await ensureFolder(plugin, `${root}/Monthly`);
 	const monthly = await getOrCreateFile(
 		plugin,
 		`${root}/Monthly/${month}.md`,
 		`# ${month}\n\n## ${t('tasks')}\n\n`,
 	);
 	const content = await plugin.app.vault.read(monthly);
-	await plugin.app.vault.modify(monthly, appendToSection(content, tasksHeading(content), tasks.join('\n')));
-	await plugin.app.vault.modify(source, [...lines.slice(0, start + 1), '', ...lines.slice(end)].join('\n'));
+	await plugin.app.vault.modify(
+		monthly,
+		appendToSection(content, tasksHeading(content), tasks.map((task) => task.content).join('\n')),
+	);
+	for (const task of tasks)
+		lines[start + 1 + task.line] = markTask(task.text, '>');
+	await plugin.app.vault.modify(source, lines.join('\n'));
 	new Notice(t('migratedFromFuture', { count: tasks.length, month }));
 }
 
@@ -386,7 +306,7 @@ function migrateManually(plugin: JournalPlugin, editor: Editor): void {
 		{ length: to.line - from.line + 1 },
 		(_, offset) => editor.getLine(from.line + offset),
 	);
-	const tasks = lines.filter((line) => /^\s*•\s+.+$/u.test(line));
+	const tasks = lines.filter(isUnfinishedTask);
 	if (!tasks.length) {
 		new Notice(t('selectTask'));
 		return;
@@ -410,7 +330,7 @@ function migrateManually(plugin: JournalPlugin, editor: Editor): void {
 			await plugin.app.vault.modify(file, appendToSection(content, tasksHeading(content), tasks.join('\n')));
 		}
 		editor.replaceRange(
-			lines.map((line) => line.replace(/^(\s*)•/u, '$1>')).join('\n'),
+			lines.map((line) => markTask(line, '>')).join('\n'),
 			{ line: from.line, ch: 0 },
 			{ line: to.line, ch: editor.getLine(to.line).length },
 		);
@@ -439,8 +359,8 @@ export function registerJournalCommands(plugin: JournalPlugin): void {
 	plugin.registerEvent(plugin.app.vault.on('create', (file) => {
 		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();
 	}));
-	plugin.registerEvent(plugin.app.vault.on('rename', (file) => {
-		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();
+	plugin.registerEvent(plugin.app.vault.on('rename', (file, oldPath) => {
+		if (isJournalPath(plugin, file.path) || isJournalPath(plugin, oldPath)) refreshIndexDebounced();
 	}));
 	plugin.registerEvent(plugin.app.vault.on('delete', (file) => {
 		if (isJournalPath(plugin, file.path)) refreshIndexDebounced();

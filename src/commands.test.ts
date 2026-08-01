@@ -3,11 +3,13 @@ import { parseBulletLines } from './rendering';
 import { monthCalendar } from './calendar';
 import { formatLocalDate, formatLocalMonth, parseMigrationTarget } from './date';
 import { appendToSection, futureMonths } from './future';
-import { findUnfinishedTasks } from './tasks';
+import { findUnfinishedTasks, markTask } from './tasks';
 
 for (const [input, expected] of [
 	['Buy milk', '• Buy milk'],
 	['• Buy milk', '× Buy milk'],
+	['× Buy milk', '\\> Buy milk'],
+	['> Old migrated task', '< Old migrated task'],
 	['  ○ Meeting', '  • Meeting'],
 ] as const) {
 	if (cycleBullet(input) !== expected) throw new Error(`Failed: ${input}`);
@@ -33,6 +35,12 @@ if (parseMigrationTarget('20260230') !== null)
 
 if (findUnfinishedTasks('• One\n× Two\n\t• Three').length !== 2)
 	throw new Error('Failed to find unfinished tasks');
+if (findUnfinishedTasks('* • Important').length !== 1)
+	throw new Error('Failed to find a signified unfinished task');
+if (markTask('* • Important', '>') !== '* \\> Important')
+	throw new Error('Failed to preserve a signifier when marking a task');
+if (parseBulletLines('\\> Migrated')?.[0]?.text !== '> Migrated')
+	throw new Error('Failed to render an escaped migrated task');
 
 const months = futureMonths(new Date(2026, 7, 1));
 if (months.length !== 6 || months[0]?.value !== '2026-09' || months[5]?.value !== '2027-02')

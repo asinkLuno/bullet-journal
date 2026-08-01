@@ -2,7 +2,7 @@
 	"name": "bullet-journal",
 	"version": "1.0.0",
 	"description": "Bullet Journal symbols for Obsidian",
-	"packageManager": "yarn@4.9.2",
+	"packageManager": "npm@11.17.0",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
